@@ -1,0 +1,155 @@
+---
+title: Mendelian errors in ALSPAC trios?
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: Gibran Hemani
+---
+
+Setup
+
+```{r}
+library(knitr)
+knitr::opts_chunk$set(cache=TRUE)
+
+library(tidyverse)
+library(data.table)
+library(glue)
+library(jsonlite)
+
+config <- read_json("config.json")
+round1bfile <- config$round1bfile
+round2bfile <- config$round2bfile
+dir.create("data")
+```
+
+Read in data
+
+```{r}
+round1fam <- fread(paste0(round1bfile, ".fam"), header=FALSE) %>% as_tibble()
+round2fam <- fread(paste0(round2bfile, ".fam"), header=FALSE) %>% as_tibble()
+```
+
+Any individuals present in both rounds?
+
+```{r}
+table(round1fam$V1 %in% round2fam$V1)
+table(round2fam$V1 %in% round1fam$V1)
+````
+
+Merge round 1 and round 2 - just use chr22 to reduce computational time
+
+```{r}
+cmd <- glue("plink --bfile {round1bfile} --bmerge {round2bfile} --make-bed --out data/chr22_merge")
+system(cmd)
+
+cmd <- glue("plink --bfile {round1bfile} --exclude data/chr22_merge-merge.missnp --make-bed --out data/round1")
+system(cmd)
+
+cmd <- glue("plink --bfile {round2bfile} --exclude data/chr22_merge-merge.missnp --make-bed --out data/round2")
+system(cmd)
+
+cmd <- glue("plink --bfile data/round1 --bmerge data/round2 --make-bed --out data/chr22_merge")
+system(cmd)
+
+cmd <- glue("cp data/chr22_merge.fam data/chr22_merge.fam.orig")
+system(cmd)
+```
+
+Read in the merged fam file
+
+```{r}
+mergefam <- fread("data/chr22_merge.fam.orig", header=FALSE) %>% as_tibble()
+```
+
+Create trios in the fam file
+
+```{r}
+kids <- grep("[A,B,C,D]", mergefam$V1, value=TRUE)
+kidsaln <- gsub("[A-D]", "", kids)
+
+mums <- grep("M", mergefam$V1, value=TRUE)
+mumsaln <- gsub("M", "", mums)
+
+dads <- grep("F", mergefam$V1, value=TRUE)
+dadsaln <- gsub("F", "", dads)
+
+kids_with_dads <- which(kidsaln %in% dadsaln)
+length(kids_with_dads)
+
+kids_with_mums <- which(kidsaln %in% mumsaln)
+length(kids_with_mums)
+
+mergefam$V3 <- as.character(mergefam$V3)
+mergefam$V3[mergefam$V2 %in% kids][kids_with_dads] <- paste0(kidsaln[kids_with_dads], "F")
+
+mergefam$V4 <- as.character(mergefam$V4)
+mergefam$V4[mergefam$V2 %in% kids][kids_with_mums] <- paste0(kidsaln[kids_with_mums], "M")
+
+mergefam$V1 <- gsub("[A-Z]", "", mergefam$V1)
+write.table(mergefam, file="data/chr22_merge.fam", row=F, col=F, qu=F)
+```
+
+Get the allele frequencies of the merged file
+
+```{r}
+cmd <- glue("plink --bfile data/chr22_merge --freq --out data/chr22_merge")
+system(cmd)
+
+freq <- fread("data/chr22_merge.frq") %>% as_tibble()
+table(freq$MAF > 0.05)
+```
+
+A lot of rare variants, restrict mendelian error analysis to only common variants
+
+```{r}
+cmd <- glue("plink --bfile data/chr22_merge --maf 0.05 --mendel --out data/chr22_merge")
+system(cmd)
+```
+
+How many trios?
+
+```{r}
+ntrio <- sum(mergefam$V3 != "0" & mergefam$V4 != "0")
+ntrio
+```
+
+How many variants
+
+```{r}
+nvar <- sum(freq$MAF > 0.05, na.rm=T)
+nvar
+```
+
+Total number of possible errors
+
+```{r}
+nvar * ntrio
+```
+
+Actual number of errors
+
+
+```{r}
+cmd <- glue("cut -c 244 data/chr22_merge.mendel | sed 1d")
+mendel <- system(cmd, intern=TRUE)
+length(mendel)
+```
+
+ratio:
+
+```{r}
+length(mendel) / (nvar * ntrio)
+```
+
+Check distribution of errors
+
+```{r}
+imendel <- fread("data/chr22_merge.imendel") %>% as_tibble()
+hist(imendel$N)
+lmendel <- fread("data/chr22_merge.lmendel") %>% as_tibble()
+hist(lmendel$N)
+fmendel <- fread("data/chr22_merge.fmendel") %>% as_tibble()
+hist(fmendel$N)
+```
+
+
+
