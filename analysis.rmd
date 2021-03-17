@@ -151,5 +151,51 @@ fmendel <- fread("data/chr22_merge.fmendel") %>% as_tibble()
 hist(fmendel$N)
 ```
 
+Relatedness - there's probably a faster way to do this but whatever
 
+```{r}
+
+trios <- mergefam$V3 !=0 & mergefam$V4 !=0
+trioids <- bind_rows(
+	tibble(V1=mergefam$V1[trios], V2=mergefam$V2[trios]),
+	tibble(V1=mergefam$V1[trios], V2=mergefam$V3[trios]),
+	tibble(V1=mergefam$V1[trios], V2=mergefam$V4[trios])
+)
+
+write.table(trioids, file="data/trioids.txt", row=F, col=F, qu=F)
+cmd <- glue("plink --bfile data/chr22_merge --make-grm-gz --maf 0.05 --keep data/trioids.txt --out data/chr22_merge")
+system(cmd)
+rels <- fread("data/chr22_merge.grm.gz") %>% as_tibble()
+relids <- fread("data/chr22_merge.grm.id") %>% as_tibble()
+
+triofam <- mergefam[trios,]
+triofam$pat <- triofam$mat <- NA
+
+for(i in 1:nrow(triofam))
+{
+	i1 <- which(relids$V2 == triofam$V2[i])
+	i2 <- which(relids$V2 == triofam$V3[i])
+	i3 <- which(relids$V2 == triofam$V4[i])
+	triofam$pat[i] <- rels$V4[rels$V2==i1 & rels$V1==i2]
+	triofam$mat[i] <- rels$V4[rels$V2==i1 & rels$V1==i3]
+}
+```
+
+All relationships:
+
+```{r}
+hist(rels$V4, breaks=100)
+```
+
+Just father-child:
+
+```{r}
+hist(triofam$pat)
+```
+
+Just mother-child:
+
+```{r}
+hist(triofam$mat)
+```
 
