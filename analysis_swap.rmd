@@ -217,3 +217,43 @@ Just round2 mother-child:
 triofam %>% dplyr::filter(V4 %in% round2fam$V2) %>% {hist(.$mat)}
 ```
 
+## PRS
+
+Generate a PRS
+
+```{r}
+mergebim <- fread(glue("{dd}/chr22_merge.bim"))
+betas <- tibble(SNP=mergebim$V2, A1=mergebim$V5, b=rnorm(nrow(mergebim)))
+write.table(betas, file=glue("{dd}/betas.txt"), row=F, col=F, qu=F)
+glue("plink --bfile {dd}/chr22_merge --score {dd}/betas.txt --out {dd}/chr22_merge") %>% system()
+score <- fread(glue("{dd}/chr22_merge.profile")) %>% 
+	mutate(rel = gsub("[0-9]", "", IID)) %>%
+	dplyr::select(FID, SCORE, rel) %>%	
+	pivot_wider(values_from=SCORE, names_from="rel")
+```
+
+Check mother - offspring correlations
+
+```{r}
+cor(score$A, score$M, use="pair")
+```
+
+Check r2 mother - offspring correlations
+
+```{r}
+r2m <- grep("M", round2fam$V1) %>% gsub("M", "", .)
+score %>% filter(FID %in% r2m) %>% {cor(.$A, .$M, use="pair")}
+```
+
+Check father - offspring correlations
+
+```{r}
+cor(score$A, score$F, use="pair")
+```
+
+Check mother - father correlations - should be very low
+
+```{r}
+cor(score$F, score$M, use="pair")
+```
+
