@@ -211,3 +211,9 @@ Just mother-child:
 hist(triofam$mat)
 ```
 
+Just round2 mother-child:
+
+```{r}
+triofam %>% dplyr::filter(V4 %in% round2fam$V2) %>% {hist(.$mat)}
+```
+
